@@ -1,0 +1,66 @@
+name: deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+permissions:
+  contents: read
+  deployments: write
+  id-token: write
+env:
+  AWS_REGION: eu-central-1
+  ECR_REPOSITORY: opsbot-test-service
+  ECS_CLUSTER: opsbot-test-cluster
+  ECS_SERVICE: opsbot-test-service
+  SERVICE_ID: opsbot-sandbox-service
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::199618931467:role/opsbot-test-sandbox-service-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: type=sha,format=long
+      - uses: docker/setup-buildx-action@v3
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          # No attestations, so the pushed digest is the image manifest that Inspector scans
+          # and ECS runs, not an index that wraps it.
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - name: Roll the service to the new image
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.build.outputs.digest }}
+        run: |
+          aws ecs describe-task-definition --task-definition "$ECS_SERVICE" --query taskDefinition \
+            | jq --arg image "$IMAGE" '.containerDefinitions[0].image = $image
+                | del(.containerDefinitions[0].command)
+                | {family, containerDefinitions, executionRoleArn, networkMode, requiresCompatibilities, cpu, memory}' \
+            > task-definition.json
+          revision=$(aws ecs register-task-definition --cli-input-json file://task-definition.json \
+            --query taskDefinition.taskDefinitionArn --output text)
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$revision" > /dev/null
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+      - name: Record the deployment for opsbot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          id=$(jq -n --arg ref "$GITHUB_SHA" --arg service "$SERVICE_ID" --arg digest "$DIGEST" \
+            '{ref: $ref, environment: "test", auto_merge: false, required_contexts: [], payload: {service: $service, digest: $digest}}' \
+            | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" -f state=success > /dev/null
