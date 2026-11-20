@@ -12,9 +12,9 @@ permissions:
   id-token: write
 env:
   AWS_REGION: eu-central-1
-  ECR_REPOSITORY: opsbot-test-service
-  ECS_CLUSTER: opsbot-test-cluster
-  ECS_SERVICE: opsbot-test-service
+  ECR_REPOSITORY: opsbot-staging-sandbox-service
+  ECS_CLUSTER: opsbot-staging-vulnerable
+  ECS_SERVICE: opsbot-staging-sandbox-service
   SERVICE_ID: opsbot-sandbox-service
 jobs:
   deploy:
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::199618931467:role/opsbot-test-sandbox-service-github-actions
+          role-to-assume: arn:aws:iam::199618931467:role/opsbot-staging-sandbox-service-github-actions
           aws-region: ${{ env.AWS_REGION }}
       - id: ecr
         uses: aws-actions/amazon-ecr-login@v2
