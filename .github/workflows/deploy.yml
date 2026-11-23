@@ -37,8 +37,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: true
-          # No attestations, so the pushed digest is the image manifest that Inspector scans
-          # and ECS runs, not an index that wraps it.
+          # no attestations: the digest must be the image manifest, not a wrapping index
           provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
