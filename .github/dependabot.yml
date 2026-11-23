@@ -4,5 +4,5 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # Turns off version updates. Security updates still open PRs.
+    # turns off version updates; security updates still open PRs
     open-pull-requests-limit: 0
